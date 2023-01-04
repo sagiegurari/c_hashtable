@@ -194,7 +194,7 @@ static size_t _hashtable_hash_function(char *key)
 
   for (int char_index = 0; key[char_index]; char_index++)
   {
-    index = 31 * index + key[char_index];
+    index = 31 * index + (size_t)key[char_index];
   }
 
   return(index);
