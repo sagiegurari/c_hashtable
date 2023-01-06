@@ -24,16 +24,23 @@ struct HashTableEntryReplaceContext
   struct HashTableEntry *entry;
 };
 
+struct HashTableChainAndIndex
+{
+  struct Vector *vector;
+  size_t        index;
+};
+
 // private functions
 static size_t _hashtable_hash_key(struct HashTable *, char *);
 static size_t _hashtable_hash_function(char *);
 static void _hashtable_entry_release(struct HashTableEntry *);
-static struct Vector *_hashtable_get_chain(struct HashTable *, char *, bool create);
+static struct HashTableChainAndIndex _hashtable_get_chain(struct HashTable *, char *, bool create);
 static void *_hashtable_for_entry_in_chain(struct HashTable *, struct Vector *, char *, void *, void * (*callback)(struct HashTable *, struct Vector *, struct HashTableEntry *, size_t index, void *));
 static void *_hashtable_get_entry_callback(struct HashTable *, struct Vector *, struct HashTableEntry *, size_t index, void *);
 static void *_hashtable_replace_or_add_entry_callback(struct HashTable *, struct Vector *, struct HashTableEntry *, size_t index, void *);
 static void *_hashtable_remove_entry_callback(struct HashTable *, struct Vector *, struct HashTableEntry *, size_t index, void *);
 static bool _hashtable_release_entries(struct HashTable *);
+struct HashTableEntries _hashtable_entries(struct HashTable *, bool include_values);
 static void _hashtable_noop(void *);
 
 struct HashTable *hashtable_new()
@@ -110,9 +117,9 @@ bool hashtable_is_empty(struct HashTable *table)
 
 bool hashtable_insert(struct HashTable *table, char *key, void *value, void (*release)(char *, void *))
 {
-  struct Vector *chain = _hashtable_get_chain(table, key, true /* create */);
+  struct HashTableChainAndIndex chain = _hashtable_get_chain(table, key, true /* create */);
 
-  if (chain == NULL)
+  if (chain.vector == NULL)
   {
     return(false);
   }
@@ -123,7 +130,7 @@ bool hashtable_insert(struct HashTable *table, char *key, void *value, void (*re
   entry->release = release;
 
   struct HashTableEntryReplaceContext context = { .done = false, .entry = entry };
-  _hashtable_for_entry_in_chain(table, chain, key, &context, _hashtable_replace_or_add_entry_callback);
+  _hashtable_for_entry_in_chain(table, chain.vector, key, &context, _hashtable_replace_or_add_entry_callback);
 
   if (!context.done)
   {
@@ -133,17 +140,19 @@ bool hashtable_insert(struct HashTable *table, char *key, void *value, void (*re
   return(context.done);
 } /* hashtable_insert */
 
+char **hashtable_keys(struct HashTable *);
+
 
 void *hashtable_get(struct HashTable *table, char *key)
 {
-  struct Vector *chain = _hashtable_get_chain(table, key, false /* create */);
+  struct HashTableChainAndIndex chain = _hashtable_get_chain(table, key, false /* create */);
 
-  if (chain == NULL)
+  if (chain.vector == NULL)
   {
     return(NULL);
   }
 
-  struct HashTableEntry *entry = _hashtable_for_entry_in_chain(table, chain, key, NULL, _hashtable_get_entry_callback);
+  struct HashTableEntry *entry = _hashtable_for_entry_in_chain(table, chain.vector, key, NULL, _hashtable_get_entry_callback);
   if (entry == NULL)
   {
     return(NULL);
@@ -155,17 +164,45 @@ void *hashtable_get(struct HashTable *table, char *key)
 
 bool hashtable_remove(struct HashTable *table, char *key)
 {
-  struct Vector *chain = _hashtable_get_chain(table, key, false /* create */);
+  struct HashTableChainAndIndex chain = _hashtable_get_chain(table, key, false /* create */);
 
-  if (chain == NULL)
+  if (chain.vector == NULL)
   {
     return(false);
   }
 
   bool done = false;
-  _hashtable_for_entry_in_chain(table, chain, key, &done, _hashtable_remove_entry_callback);
+  _hashtable_for_entry_in_chain(table, chain.vector, key, &done, _hashtable_remove_entry_callback);
+
+  if (!vector_size(chain.vector))
+  {
+    vector_release(chain.vector);
+    vector_remove(table->values, chain.index);
+  }
 
   return(done);
+}
+
+
+char **hashtable_keys(struct HashTable *table)
+{
+  if (table == NULL)
+  {
+    return(NULL);
+  }
+
+  struct HashTableEntries entries = _hashtable_entries(table, false /* include value */);
+  if (entries.values != NULL)
+  {
+    free(entries.values);
+  }
+
+  return(entries.keys);
+}
+
+struct HashTableEntries hashtable_entries(struct HashTable *table)
+{
+  return(_hashtable_entries(table, true /* include values */));
 }
 
 
@@ -216,16 +253,18 @@ static void _hashtable_entry_release(struct HashTableEntry *entry)
   free(entry);
 }
 
-static struct Vector *_hashtable_get_chain(struct HashTable *table, char *key, bool create)
+static struct HashTableChainAndIndex _hashtable_get_chain(struct HashTable *table, char *key, bool create)
 {
+  struct HashTableChainAndIndex chain_and_index = { .vector = NULL, .index = 0 };
+
   if (table == NULL || key == NULL)
   {
-    return(NULL);
+    return(chain_and_index);
   }
 
-  size_t        index = _hashtable_hash_key(table, key);
+  chain_and_index.index = _hashtable_hash_key(table, key);
 
-  struct Vector *chain = vector_get(table->values, index);
+  struct Vector *chain = vector_get(table->values, chain_and_index.index);
 
   if (chain == NULL && create)
   {
@@ -238,10 +277,12 @@ static struct Vector *_hashtable_get_chain(struct HashTable *table, char *key, b
       chain = vector_new();
     }
 
-    vector_set(table->values, index, chain);
+    vector_set(table->values, chain_and_index.index, chain);
   }
 
-  return(chain);
+  chain_and_index.vector = chain;
+
+  return(chain_and_index);
 }
 
 
@@ -365,6 +406,46 @@ static bool _hashtable_release_entries(struct HashTable *table)
   table->count = 0;
 
   return(true);
+}
+
+struct HashTableEntries _hashtable_entries(struct HashTable *table, bool include_values)
+{
+  struct HashTableEntries entries = { .keys = NULL, .values = NULL };
+
+  if (table == NULL)
+  {
+    return(entries);
+  }
+
+  entries.keys = malloc(sizeof(char *) * table->count);
+  if (include_values)
+  {
+    entries.values = malloc(sizeof(void *) * table->count);
+  }
+
+  size_t table_size  = vector_size(table->values);
+  size_t entry_index = 0;
+  for (size_t table_index = 0; table_index < table_size; table_index++)
+  {
+    struct Vector *chain = vector_get(table->values, table_index);
+
+    if (chain != NULL)
+    {
+      size_t chain_size = vector_size(chain);
+      for (size_t chain_index = 0; chain_index < chain_size; chain_index++)
+      {
+        struct HashTableEntry *entry = vector_get(chain, chain_index);
+        entries.keys[entry_index] = entry->key;
+        if (include_values)
+        {
+          entries.values[entry_index] = entry->value;
+        }
+        entry_index = entry_index + 1;
+      }
+    }
+  }
+
+  return(entries);
 }
 
 

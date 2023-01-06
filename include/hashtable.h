@@ -18,6 +18,12 @@ struct HashTableOptions
   size_t (*hash_function)(char *);
 };
 
+struct HashTableEntries
+{
+  char **keys;
+  void **values;
+};
+
 /**
  * Creates and returns a new hashtable with default size and implementation.
  * Once no longer needed, it must be released.
@@ -67,6 +73,18 @@ void *hashtable_get(struct HashTable *, char * /* key */);
  * If an entry was found, true will be returned.
  */
 bool hashtable_remove(struct HashTable *, char * /* key */);
+
+/**
+ * Returns all keys as an array.
+ * The array (not values) must be released once done.
+ */
+char **hashtable_keys(struct HashTable *);
+
+/**
+ * Returns all key/value pairs as arrays.
+ * The arrays (not values) must be released once done.
+ */
+struct HashTableEntries hashtable_entries(struct HashTable *);
 
 #endif
 
