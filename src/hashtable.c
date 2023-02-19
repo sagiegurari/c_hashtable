@@ -177,7 +177,7 @@ bool hashtable_remove(struct HashTable *table, char *key)
   if (!vector_size(chain.vector))
   {
     vector_release(chain.vector);
-    vector_remove(table->values, chain.index);
+    vector_set(table->values, chain.index, NULL);
   }
 
   return(done);
