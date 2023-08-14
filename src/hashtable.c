@@ -43,7 +43,7 @@ static bool _hashtable_release_entries(struct HashTable *);
 struct HashTableEntries _hashtable_entries(struct HashTable *, bool include_values);
 static void _hashtable_noop(void *);
 
-struct HashTable *hashtable_new()
+struct HashTable *hashtable_new(void)
 {
   struct HashTableOptions options = { .table_size = 0, .chain_max_size = 0, .hash_function = NULL };
 
