@@ -19,6 +19,7 @@ This library provides a simple basic implementation of hashtables for C.
 <a name="usage"></a>
 ## Usage
 
+<!-- example source start -->
 ```c
 #include "hashtable.h"
 #include <stdio.h>
@@ -73,6 +74,7 @@ static void release_key_and_value(char *key, void *value)
   free(value);
 }
 ```
+<!-- example source end -->
 
 ## Contributing
 See [contributing guide](.github/CONTRIBUTING.md)
